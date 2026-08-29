@@ -1,5 +1,5 @@
 ---
-name: scan
+name: paperfeed
 description: Use when the user asks to scan paper, digitize a document, use an ADF or document feeder, or mentions Epson Scan, ScanSmart, Image Capture scanning, eSCL, AirScan, or paperfeed. Runs the paperfeed CLI to make a PDF from an AirScan printer. Do not use for port scans, virus scans, secret scans, or repository scans.
 license: MIT
 metadata:
@@ -8,7 +8,7 @@ metadata:
       - paperfeed
 ---
 
-# Scan
+# paperfeed
 
 `paperfeed` talks eSCL/AirScan on the LAN and writes a PDF. Run that command. Do not install Epson software, SANE, or NAPS2, and do not write a new ScanJobs / curl / Python eSCL client.
 

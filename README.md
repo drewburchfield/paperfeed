@@ -134,10 +134,10 @@ The UI does not switch to the glass when the feeder is empty.
 
 ## Agent skill
 
-Harnesses load `skill/scan/SKILL.md`. Install it with [skills.sh](https://skills.sh):
+Harnesses load `skill/paperfeed/SKILL.md`. Install it with [skills.sh](https://skills.sh):
 
 ```bash
-npx skills add git@github.com:drewburchfield/paperfeed.git --skill scan -g \
+npx skills add git@github.com:drewburchfield/paperfeed.git --skill paperfeed -g \
   -a claude-code -a codex -a opencode -a antigravity -y
 ```
 

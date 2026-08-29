@@ -132,6 +132,15 @@ Linux and Windows are untested. The eSCL client itself is plain Python. The UI's
 
 The UI does not switch to the glass when the feeder is empty.
 
+## Agent skill
+
+Harnesses load `skill/scan/SKILL.md`. Install it with [skills.sh](https://skills.sh):
+
+```bash
+npx skills add git@github.com:drewburchfield/paperfeed.git --skill scan -g \
+  -a claude-code -a codex -a opencode -a antigravity -y
+```
+
 ## Development
 
 ```bash

@@ -106,7 +106,7 @@ If the output path already exists, `paperfeed` refuses and you pick another name
 
 ## How It Works
 
-The printer advertises AirScan/eSCL. `paperfeed` POSTs a ScanJobs document to `https://<printer>/eSCL`, reads the PDF, and hangs up. Device TLS certificates are not verified, which is normal for these printers.
+The printer advertises AirScan/eSCL. `paperfeed` POSTs a ScanJobs document to `https://<printer>/eSCL`, reads every returned document, and hangs up. Most AirScan printers send one multi-page PDF. If the printer sends one PDF per page, extra files are written as `name-p2.pdf`, `name-p3.pdf`, and so on. Device TLS certificates are not verified, which is normal for these printers.
 
 `paperfeed ui` binds `127.0.0.1` only.
 

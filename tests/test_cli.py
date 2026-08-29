@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -46,16 +47,34 @@ class MainTests(unittest.TestCase):
         scan.assert_not_called()
 
     def test_scan_passes_single_sided(self) -> None:
-        with patch("paperfeed.cli.scan_to_pdf", return_value=Path("/tmp/scan.pdf")) as scan:
+        with patch("paperfeed.cli.scan_to_pdf", autospec=True, return_value=Path("/tmp/scan.pdf")) as scan:
             self.assertEqual(main([]), 0)
         kwargs = scan.call_args.kwargs
         self.assertEqual(kwargs["source"], "Feeder")
         self.assertFalse(kwargs["duplex"])
+        self.assertEqual(kwargs["color"], "color")
+        self.assertEqual(kwargs["dpi"], 300)
+        self.assertEqual(kwargs["size"], "letter")
+        self.assertFalse(kwargs["open_when_done"])
 
     def test_scan_passes_duplex(self) -> None:
-        with patch("paperfeed.cli.scan_to_pdf", return_value=Path("/tmp/scan.pdf")) as scan:
+        with patch("paperfeed.cli.scan_to_pdf", autospec=True, return_value=Path("/tmp/scan.pdf")) as scan:
             self.assertEqual(main(["--duplex"]), 0)
         self.assertTrue(scan.call_args.kwargs["duplex"])
+
+    def test_scan_passes_non_default_settings(self) -> None:
+        with patch("paperfeed.cli.scan_to_pdf", autospec=True, return_value=Path("/tmp/scan.pdf")) as scan:
+            self.assertEqual(main(["--color", "gray", "--dpi", "200", "--size", "legal", "--open"]), 0)
+        kwargs = scan.call_args.kwargs
+        self.assertEqual(kwargs["color"], "gray")
+        self.assertEqual(kwargs["dpi"], 200)
+        self.assertEqual(kwargs["size"], "legal")
+        self.assertTrue(kwargs["open_when_done"])
+
+    def test_status_transport_error(self) -> None:
+        with patch("paperfeed.cli.resolve_base", return_value="https://printer/eSCL"):
+            with patch("paperfeed.escl.request", side_effect=urllib.error.URLError("down")):
+                self.assertEqual(main(["--status"]), 2)
 
     def test_status(self) -> None:
         with patch("paperfeed.cli.resolve_base", return_value="https://printer/eSCL"):
@@ -64,7 +83,7 @@ class MainTests(unittest.TestCase):
                 status.assert_called_once()
 
     def test_scan_error_is_exit_2(self) -> None:
-        with patch("paperfeed.cli.scan_to_pdf", side_effect=ScanError("Feeder is empty. Load pages face-up in the ADF, then run scan again.")):
+        with patch("paperfeed.cli.scan_to_pdf", side_effect=ScanError("Feeder is empty. Load pages face-up in the ADF, then run paperfeed again.")):
             code = main([])
         self.assertEqual(code, 2)
 

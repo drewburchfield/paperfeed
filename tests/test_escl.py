@@ -6,17 +6,24 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
+import urllib.error
+import xml.etree.ElementTree as ET
+
 from paperfeed.escl import (
     NO_HOST_MESSAGE,
+    NS,
     ScanError,
     build_settings,
     check_dpi,
     configured_host,
     describe_adf,
+    exclusive_write,
     job_url_from_location,
     output_path,
     parse_status,
     resolve_base,
+    scan_to_pdf,
+    scanner_status,
 )
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -53,39 +60,24 @@ class ParseStatusTests(unittest.TestCase):
 
 
 class SettingsTests(unittest.TestCase):
+    def _root(self, **kwargs):
+        return ET.fromstring(build_settings(**kwargs))
+
     def test_single_sided_omits_true_duplex(self) -> None:
-        xml = build_settings(
-            source="Feeder",
-            duplex=False,
-            color="color",
-            dpi=300,
-            size="letter",
-        ).decode("utf-8")
-        self.assertIn("Feeder", xml)
-        self.assertIn(">false<", xml)
-        self.assertNotIn(">true<", xml)
+        root = self._root(source="Feeder", duplex=False, color="color", dpi=300, size="letter")
+        self.assertEqual(root.find("pwg:InputSource", NS).text, "Feeder")
+        self.assertEqual(root.find("scan:Duplex", NS).text, "false")
+        self.assertEqual(root.find("scan:ColorMode", NS).text, "RGB24")
 
     def test_double_sided_sets_duplex_true(self) -> None:
-        xml = build_settings(
-            source="Feeder",
-            duplex=True,
-            color="color",
-            dpi=300,
-            size="letter",
-        ).decode("utf-8")
-        self.assertIn(">true<", xml)
+        root = self._root(source="Feeder", duplex=True, color="color", dpi=300, size="letter")
+        self.assertEqual(root.find("scan:Duplex", NS).text, "true")
 
     def test_glass_has_no_duplex_element(self) -> None:
-        xml = build_settings(
-            source="Platen",
-            duplex=True,
-            color="gray",
-            dpi=300,
-            size="letter",
-        ).decode("utf-8")
-        self.assertIn("Platen", xml)
-        self.assertNotIn("Duplex", xml)
-        self.assertIn("Grayscale8", xml)
+        root = self._root(source="Platen", duplex=True, color="gray", dpi=300, size="letter")
+        self.assertEqual(root.find("pwg:InputSource", NS).text, "Platen")
+        self.assertIsNone(root.find("scan:Duplex", NS))
+        self.assertEqual(root.find("scan:ColorMode", NS).text, "Grayscale8")
 
 
 class DpiTests(unittest.TestCase):
@@ -173,7 +165,8 @@ class HostConfigTests(unittest.TestCase):
             self.assertEqual(configured_host(None, environ={}, home=home), "file.local")
 
     def test_missing(self) -> None:
-        self.assertIsNone(configured_host(None, environ={}, home=Path("/tmp/paperfeed-no-config")))
+        with tempfile.TemporaryDirectory() as raw:
+            self.assertIsNone(configured_host(None, environ={}, home=Path(raw)))
 
     def test_resolve_requires_host(self) -> None:
         with patch("paperfeed.escl.configured_host", return_value=None):
@@ -189,6 +182,52 @@ class HostConfigTests(unittest.TestCase):
                     resolve_base()
         self.assertIn("gone.local", str(ctx.exception))
         self.assertNotIn("Epson", str(ctx.exception))
+
+
+class ExclusiveWriteTests(unittest.TestCase):
+    def test_refuses_to_replace(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "out.pdf"
+            exclusive_write(path, b"%PDF-one")
+            with self.assertRaises(ScanError) as ctx:
+                exclusive_write(path, b"%PDF-two")
+            self.assertIn("already exists", str(ctx.exception))
+            self.assertEqual(path.read_bytes(), b"%PDF-one")
+
+
+class ScanLoopTests(unittest.TestCase):
+    def test_keeps_every_pdf_document(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            out = Path(raw) / "out.pdf"
+            with patch("paperfeed.escl.resolve_base", return_value="https://p/eSCL"):
+                with patch("paperfeed.escl.scanner_status", return_value=("Idle", "ScannerAdfLoaded")):
+                    with patch("paperfeed.escl.create_job", return_value="https://p/eSCL/ScanJobs/1"):
+                        with patch(
+                            "paperfeed.escl.next_document",
+                            side_effect=[b"%PDF-one", b"%PDF-two", None],
+                        ):
+                            with patch("paperfeed.escl.delete_job"):
+                                path = scan_to_pdf(
+                                    source="Feeder",
+                                    duplex=False,
+                                    color="color",
+                                    dpi=300,
+                                    size="letter",
+                                    output=str(out),
+                                    log=lambda _m: None,
+                                )
+            self.assertEqual(path, out)
+            self.assertEqual(out.read_bytes(), b"%PDF-one")
+            extra = out.with_name("out-p2.pdf")
+            self.assertEqual(extra.read_bytes(), b"%PDF-two")
+
+
+class TransportTests(unittest.TestCase):
+    def test_scanner_status_wraps_urlerror(self) -> None:
+        with patch("paperfeed.escl.request", side_effect=urllib.error.URLError("down")):
+            with self.assertRaises(ScanError) as ctx:
+                scanner_status("https://p/eSCL")
+        self.assertIn("Could not reach the scanner", str(ctx.exception))
 
 
 class JobUrlTests(unittest.TestCase):

@@ -155,7 +155,10 @@ def resolve_base(preferred: Optional[str] = None) -> str:
 
 
 def scanner_status(base: str) -> Tuple[str, Optional[str]]:
-    status, _, body = request(f"{base}/ScannerStatus", timeout=6)
+    try:
+        status, _, body = request(f"{base}/ScannerStatus", timeout=6)
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise ScanError(f"Could not reach the scanner: {exc}") from exc
     if status != 200:
         raise ScanError(f"ScannerStatus failed ({status}): {body[:300]!r}")
     return parse_status(body)
@@ -233,13 +236,16 @@ def job_url_from_location(base: str, location: str) -> str:
 
 
 def create_job(base: str, settings: bytes) -> str:
-    status, headers, body = request(
-        f"{base}/ScanJobs",
-        method="POST",
-        data=settings,
-        headers={"Content-Type": "text/xml; charset=utf-8", "Accept": "application/xml, text/xml, */*"},
-        timeout=20,
-    )
+    try:
+        status, headers, body = request(
+            f"{base}/ScanJobs",
+            method="POST",
+            data=settings,
+            headers={"Content-Type": "text/xml; charset=utf-8", "Accept": "application/xml, text/xml, */*"},
+            timeout=20,
+        )
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise ScanError(f"Could not reach the scanner: {exc}") from exc
     if status not in (200, 201, 202):
         detail = body.decode("utf-8", "replace")[:500] or f"HTTP {status}"
         raise ScanError(f"Scanner refused the job: {detail}")
@@ -331,19 +337,40 @@ def output_path(
     return path
 
 
-def write_pdf(path: Path, chunks: list[bytes]) -> None:
+def exclusive_write(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags, 0o644)
+    except FileExistsError as exc:
+        raise ScanError("That file already exists. Choose another name.") from exc
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+    except Exception:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def write_pdf(path: Path, chunks: list[bytes]) -> list[Path]:
     if not chunks:
         raise ScanError("Scanner returned no pages.")
-    path.parent.mkdir(parents=True, exist_ok=True)
     if len(chunks) == 1 and chunks[0][:5] == b"%PDF-":
-        path.write_bytes(chunks[0])
-        return
+        exclusive_write(path, chunks[0])
+        return [path]
     if all(c[:5] == b"%PDF-" for c in chunks):
-        path.write_bytes(chunks[0])
+        exclusive_write(path, chunks[0])
+        written = [path]
         for index, chunk in enumerate(chunks[1:], start=2):
             extra = path.with_name(f"{path.stem}-p{index}{path.suffix}")
-            extra.write_bytes(chunk)
-        return
+            exclusive_write(extra, chunk)
+            written.append(extra)
+        return written
     raise ScanError("Scanner returned something other than a PDF. Try again or use --glass.")
 
 
@@ -400,7 +427,7 @@ def scan_to_pdf(
 
     if source == "Feeder":
         if adf == "ScannerAdfEmpty":
-            raise ScanError("Feeder is empty. Load pages face-up in the ADF, then run scan again.")
+            raise ScanError("Feeder is empty. Load pages face-up in the ADF, then run paperfeed again.")
         if adf in ADF_BLOCKED:
             raise ScanError(f"Cannot scan: {describe_adf(adf)}.")
 
@@ -425,13 +452,13 @@ def scan_to_pdf(
                 break
             chunks.append(page)
             log(f"  received {len(page):,} bytes")
-            if page[:5] == b"%PDF-":
-                break
     finally:
         delete_job(job_url)
 
-    write_pdf(out, chunks)
-    log(str(out))
+    written = write_pdf(out, chunks)
+    log(str(written[0]))
+    for extra in written[1:]:
+        log(f"  extra page {extra}")
     if open_when_done:
-        open_pdf(out)
-    return out
+        open_pdf(written[0])
+    return written[0]

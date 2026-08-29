@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="paperfeed-token" content="__PAPERFEED_TOKEN__">
   <title>paperfeed</title>
   <style>
     :root {
@@ -277,6 +278,10 @@
   </main>
   <script>
     const $ = (id) => document.getElementById(id);
+    const TOKEN = document.querySelector('meta[name="paperfeed-token"]').getAttribute("content");
+    function apiHeaders() {
+      return { "Content-Type": "application/json", "X-Paperfeed-Token": TOKEN };
+    }
 
     function defaultName() {
       const d = new Date();
@@ -306,7 +311,7 @@
       try {
         const host = $("host").value.trim();
         const url = host ? `/api/status?host=${encodeURIComponent(host)}` : "/api/status";
-        const res = await fetch(url);
+        const res = await fetch(url, { headers: { "X-Paperfeed-Token": TOKEN } });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Could not reach the scanner.");
         $("scanner").textContent = data.scanner || "";
@@ -351,7 +356,7 @@
       try {
         const res = await fetch("/api/scan", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: apiHeaders(),
           body: JSON.stringify(payload),
         });
         const data = await res.json();
@@ -375,7 +380,7 @@
       if (!lastPath) return;
       const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: apiHeaders(),
         body: JSON.stringify({ path: lastPath }),
       });
       const data = await res.json();

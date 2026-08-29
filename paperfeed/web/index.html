@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>paperfeed</title>
+  <style>
+    :root {
+      --bg: #f3efe6;
+      --ink: #1c1917;
+      --muted: #78716c;
+      --card: #fffcf7;
+      --line: #e4ddd2;
+      --accent: #1c1917;
+      --accent-ink: #fffcf7;
+      --good: #3f6212;
+      --warn: #92400e;
+      --bad: #9f1239;
+      --shadow: 0 1px 2px rgba(28, 25, 23, 0.06);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1c1917;
+        --ink: #f5f0e8;
+        --muted: #a8a29e;
+        --card: #292524;
+        --line: #44403c;
+        --accent: #f5f0e8;
+        --accent-ink: #1c1917;
+        --good: #bef264;
+        --warn: #fbbf24;
+        --bad: #fb7185;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+    main {
+      max-width: 28rem;
+      margin: 0 auto;
+      padding: 2.25rem 1.25rem 4rem;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      margin: 0 0 0.25rem;
+    }
+    .lede {
+      color: var(--muted);
+      margin: 0 0 1.5rem;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 1rem 1.1rem;
+      box-shadow: var(--shadow);
+      margin-bottom: 1rem;
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      align-items: baseline;
+    }
+    .pill {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      background: var(--line);
+    }
+    .pill.idle { color: var(--good); }
+    .pill.warn { color: var(--warn); }
+    .pill.bad { color: var(--bad); }
+    .feeder { margin: 0.35rem 0 0; }
+    .scanner {
+      font-size: 0.8rem;
+      color: var(--muted);
+      word-break: break-all;
+      margin: 0.4rem 0 0;
+    }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin: 0 0 0.35rem;
+    }
+    .field { margin-bottom: 0.9rem; }
+    .choices {
+      display: flex;
+      gap: 0.4rem;
+    }
+    .choices label {
+      flex: 1;
+      margin: 0;
+      font-weight: 500;
+      font-size: 0.9rem;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.55rem 0.6rem;
+      text-align: center;
+      cursor: pointer;
+      background: transparent;
+    }
+    .choices input { display: none; }
+    .choices input:checked + span,
+    .choices label:has(input:checked) {
+      background: var(--accent);
+      color: var(--accent-ink);
+      border-color: var(--accent);
+    }
+    select, input[type="text"] {
+      width: 100%;
+      font: inherit;
+      color: var(--ink);
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.55rem 0.7rem;
+    }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .check input { width: 1rem; height: 1rem; }
+    button.scan {
+      width: 100%;
+      margin-top: 0.4rem;
+      font: inherit;
+      font-weight: 600;
+      font-size: 1rem;
+      border: 0;
+      border-radius: 12px;
+      padding: 0.8rem 1rem;
+      background: var(--accent);
+      color: var(--accent-ink);
+      cursor: pointer;
+    }
+    button.scan:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+    .ghost {
+      font: inherit;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink);
+      border-radius: 10px;
+      padding: 0.4rem 0.7rem;
+      cursor: pointer;
+    }
+    #log {
+      white-space: pre-wrap;
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--muted);
+      min-height: 1.5em;
+    }
+    #result path {
+      display: block;
+      margin: 0 0 0.6rem;
+      word-break: break-all;
+    }
+    .error { color: var(--bad); margin: 0.5rem 0 0; }
+    .hidden { display: none; }
+    .actions { display: flex; gap: 0.4rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>paperfeed</h1>
+    <p class="lede">Scan paper from the printer on this network. No vendor software.</p>
+
+    <section class="card" id="status-card">
+      <div class="status-row">
+        <strong>Scanner</strong>
+        <span class="pill" id="state-pill">…</span>
+      </div>
+      <p class="feeder" id="feeder">Checking feeder…</p>
+      <p class="scanner" id="scanner"></p>
+    </section>
+
+    <form class="card" id="form">
+      <div class="field">
+        <label>Source</label>
+        <div class="choices">
+          <label><input type="radio" name="source" value="feeder" checked> <span>Feeder</span></label>
+          <label><input type="radio" name="source" value="glass"> <span>Glass</span></label>
+        </div>
+      </div>
+
+      <div class="field" id="sides-field">
+        <label>Sides</label>
+        <div class="choices">
+          <label><input type="radio" name="sides" value="single" checked> <span>Single-sided</span></label>
+          <label><input type="radio" name="sides" value="double"> <span>Double-sided</span></label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="color">Color</label>
+        <select id="color" name="color">
+          <option value="color" selected>Color</option>
+          <option value="gray">Gray</option>
+          <option value="bw">Black and white</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="dpi">DPI</label>
+        <select id="dpi" name="dpi">
+          <option>100</option>
+          <option>200</option>
+          <option selected>300</option>
+          <option>600</option>
+          <option>1200</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="size">Size</label>
+        <select id="size" name="size">
+          <option value="letter" selected>Letter</option>
+          <option value="legal">Legal</option>
+          <option value="a4">A4</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="filename">File name</label>
+        <input id="filename" name="filename" type="text" autocomplete="off" spellcheck="false">
+      </div>
+
+      <div class="field">
+        <label for="folder">Folder</label>
+        <input id="folder" name="folder" type="text" value="~/Downloads" autocomplete="off" spellcheck="false">
+      </div>
+
+      <div class="field">
+        <label for="host">Host</label>
+        <input id="host" name="host" type="text" placeholder="PAPERFEED_HOST or ~/.config/paperfeed/host" autocomplete="off" spellcheck="false">
+      </div>
+
+      <label class="check field">
+        <input id="open" name="open" type="checkbox">
+        Open when done
+      </label>
+
+      <button class="scan" id="scan" type="submit">Scan</button>
+      <p class="error hidden" id="error"></p>
+    </form>
+
+    <section class="card hidden" id="progress">
+      <div id="log"></div>
+      <div id="result" class="hidden">
+        <strong id="path"></strong>
+        <div class="actions">
+          <button class="ghost" type="button" id="open-btn">Open</button>
+          <button class="ghost" type="button" id="reveal-btn">Show in Finder</button>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function defaultName() {
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, "0");
+      return `scan-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.pdf`;
+    }
+
+    $("filename").value = defaultName();
+
+    function sourceValue() {
+      return document.querySelector('input[name="source"]:checked').value;
+    }
+
+    function sidesValue() {
+      return document.querySelector('input[name="sides"]:checked').value;
+    }
+
+    function syncSides() {
+      $("sides-field").classList.toggle("hidden", sourceValue() === "glass");
+    }
+
+    document.querySelectorAll('input[name="source"]').forEach((el) => {
+      el.addEventListener("change", syncSides);
+    });
+
+    async function refreshStatus() {
+      try {
+        const host = $("host").value.trim();
+        const url = host ? `/api/status?host=${encodeURIComponent(host)}` : "/api/status";
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Could not reach the scanner.");
+        $("scanner").textContent = data.scanner || "";
+        $("feeder").textContent = data.feeder || "";
+        const pill = $("state-pill");
+        pill.textContent = data.state || "Unknown";
+        pill.className = "pill";
+        if (data.state === "Idle" && data.adf === "ScannerAdfLoaded") pill.classList.add("idle");
+        else if (data.adf === "ScannerAdfEmpty") pill.classList.add("warn");
+        else if ((data.adf || "").match(/Jam|Hatch|Overload|Mispick|Multipick/)) pill.classList.add("bad");
+        else if (data.state === "Idle") pill.classList.add("idle");
+      } catch (err) {
+        $("state-pill").textContent = "Offline";
+        $("state-pill").className = "pill bad";
+        $("feeder").textContent = err.message;
+      }
+    }
+
+    setInterval(refreshStatus, 2000);
+    refreshStatus();
+
+    let lastPath = "";
+
+    $("form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      $("error").classList.add("hidden");
+      $("result").classList.add("hidden");
+      $("progress").classList.remove("hidden");
+      $("log").textContent = "Starting…";
+      $("scan").disabled = true;
+      const payload = {
+        source: sourceValue(),
+        sides: sidesValue(),
+        color: $("color").value,
+        dpi: Number($("dpi").value),
+        size: $("size").value,
+        filename: $("filename").value.trim(),
+        folder: $("folder").value.trim(),
+        host: $("host").value.trim(),
+        open: $("open").checked,
+      };
+      try {
+        const res = await fetch("/api/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || data.ok === false) throw new Error(data.error || "Scan failed.");
+        $("log").textContent = (data.log || []).join("\n");
+        lastPath = data.path;
+        $("path").textContent = data.path;
+        $("result").classList.remove("hidden");
+        $("filename").value = defaultName();
+      } catch (err) {
+        $("error").textContent = err.message;
+        $("error").classList.remove("hidden");
+        $("log").textContent = err.message;
+      } finally {
+        $("scan").disabled = false;
+        refreshStatus();
+      }
+    });
+
+    async function postPath(url) {
+      if (!lastPath) return;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: lastPath }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        $("error").textContent = data.error || "Could not open that PDF.";
+        $("error").classList.remove("hidden");
+      }
+    }
+
+    $("open-btn").addEventListener("click", () => postPath("/api/open"));
+    $("reveal-btn").addEventListener("click", () => postPath("/api/reveal"));
+  </script>
+</body>
+</html>

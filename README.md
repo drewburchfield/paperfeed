@@ -126,6 +126,7 @@ Linux and Windows are untested. The eSCL client itself is plain Python. The UI's
 | Feeder is empty | Load pages face-up, top edge first, then run `paperfeed` again. |
 | feeder jam / cover open / too many pages | Clear the ADF, then `paperfeed --status`. |
 | Could not reach the scanner | Printer off, or this Mac is on another Wi-Fi. Check `--host`. |
+| Could not resolve HOST | mDNS for `.local` failed. The printer may still be on this Wi-Fi. Try `paperfeed --host 192.168.x.x --status`. A successful probe stores the IP in `~/.config/paperfeed/last-ip` and uses it when the name misses. |
 | 1200 dpi is only available on the glass | Use `--glass` or a lower `--dpi`. |
 | That file already exists | Change `-o` or the file name on the page. |
 | Port 8787 is in use | `paperfeed ui --port 9000` |

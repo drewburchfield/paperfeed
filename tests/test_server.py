@@ -66,6 +66,8 @@ class HtmlTests(unittest.TestCase):
         self.assertIn("File name", html)
         self.assertIn("Folder", html)
         self.assertIn("__PAPERFEED_TOKEN__", html)
+        self.assertIn("statusInFlight", html)
+        self.assertIn('id="scan" type="button"', html)
         self.assertNotIn("Duplex", html)
         self.assertNotIn("duplex", html)
 

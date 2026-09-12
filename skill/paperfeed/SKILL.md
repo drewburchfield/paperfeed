@@ -44,6 +44,7 @@ Common flags: `--duplex`, `--glass`, `--color gray`, `--color bw`, `--size legal
 | Feeder is empty | Load paper, rerun. Do not invent another scanner path. |
 | No scanner host | Pass `--host PRINTER.local` or write it to `~/.config/paperfeed/host`. |
 | Could not reach the scanner | Printer off or on another Wi-Fi. Check `--host`. |
+| Could not resolve HOST | mDNS for `.local` failed. Try `--host` with the printer IP. A successful probe stores `~/.config/paperfeed/last-ip`. |
 | jam / hatch open / overloaded | Clear the ADF, then `--status`. |
 | 1200 dpi is only available on the glass | `--glass` or a lower `--dpi`. |
 | That file already exists | Change `-o` or the file name. |

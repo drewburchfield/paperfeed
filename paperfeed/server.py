@@ -16,6 +16,7 @@ from paperfeed.escl import (
     SIZES,
     ScanError,
     assert_home_pdf,
+    configured_host,
     describe_adf,
     open_pdf,
     reveal_pdf,
@@ -84,6 +85,7 @@ def default_status(host: Optional[str] = None) -> dict[str, Any]:
         "state": state,
         "feeder": describe_adf(adf),
         "adf": adf,
+        "host": configured_host(host),
     }
 
 

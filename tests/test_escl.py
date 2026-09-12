@@ -178,10 +178,49 @@ class HostConfigTests(unittest.TestCase):
     def test_unreachable_is_generic(self) -> None:
         with patch("paperfeed.escl.configured_host", return_value="gone.local"):
             with patch("paperfeed.escl.probe_host", return_value=None):
-                with self.assertRaises(ScanError) as ctx:
-                    resolve_base()
+                with patch("paperfeed.escl.host_lookup_failed", return_value=None):
+                    with self.assertRaises(ScanError) as ctx:
+                        resolve_base()
         self.assertIn("gone.local", str(ctx.exception))
+        self.assertIn("Wi-Fi", str(ctx.exception))
         self.assertNotIn("Epson", str(ctx.exception))
+
+    def test_falls_back_to_last_ip_when_hostname_misses(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            cfg = home / ".config" / "paperfeed"
+            cfg.mkdir(parents=True)
+            (cfg / "last-ip").write_text("192.168.68.69\n", encoding="utf-8")
+
+            def probe(host: str, timeout: float = 4) -> str | None:
+                if host == "192.168.68.69":
+                    return "https://192.168.68.69/eSCL"
+                return None
+
+            with patch("paperfeed.escl.configured_host", return_value="printer.local"):
+                with patch("paperfeed.escl.probe_host", side_effect=probe):
+                    base = resolve_base(home=home)
+            self.assertEqual(base, "https://192.168.68.69/eSCL")
+
+    def test_dns_failure_says_resolve_not_wifi(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            with patch("paperfeed.escl.configured_host", return_value="printer.local"):
+                with patch("paperfeed.escl.probe_host", return_value=None):
+                    with patch("paperfeed.escl.host_lookup_failed", return_value="nodename nor servname"):
+                        with self.assertRaises(ScanError) as ctx:
+                            resolve_base(home=home)
+        self.assertIn("Could not resolve printer.local", str(ctx.exception))
+        self.assertNotIn("Wi-Fi", str(ctx.exception))
+
+    def test_successful_probe_remembers_ipv4(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            with patch("paperfeed.escl.configured_host", return_value="192.0.2.10"):
+                with patch("paperfeed.escl.probe_host", return_value="https://192.0.2.10/eSCL"):
+                    resolve_base(home=home)
+            saved = (home / ".config" / "paperfeed" / "last-ip").read_text(encoding="utf-8").strip()
+            self.assertEqual(saved, "192.0.2.10")
 
 
 class ExclusiveWriteTests(unittest.TestCase):

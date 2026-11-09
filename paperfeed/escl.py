@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import os
+import re
+import socket
 import ssl
 import time
 import urllib.error
@@ -26,6 +28,7 @@ NO_HOST_MESSAGE = (
     "No scanner host. Pass --host PRINTER.local, set PAPERFEED_HOST, "
     "or put the hostname in ~/.config/paperfeed/host."
 )
+IPV4_RE = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
 SIZES = {
     "letter": (2550, 3300),
     "legal": (2550, 4200),
@@ -118,6 +121,71 @@ def host_config_path(home: Optional[Path] = None) -> Path:
     return (home or Path.home()) / ".config" / "paperfeed" / "host"
 
 
+def last_ip_path(home: Optional[Path] = None) -> Path:
+    return (home or Path.home()) / ".config" / "paperfeed" / "last-ip"
+
+
+def is_ipv4(host: str) -> bool:
+    if not IPV4_RE.match(host):
+        return False
+    return all(0 <= int(part) <= 255 for part in host.split("."))
+
+
+def read_last_ip(host: str, home: Optional[Path] = None) -> Optional[str]:
+    """The IP last seen for host. A bare IP line (older format) matches any host."""
+    path = last_ip_path(home)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        parts = line.split()
+        if not parts or parts[0].startswith("#") or not is_ipv4(parts[0]):
+            continue
+        if len(parts) == 1 or parts[1] == host:
+            return parts[0]
+    return None
+
+
+def write_last_ip(ip: str, host: str, home: Optional[Path] = None) -> None:
+    if not is_ipv4(ip):
+        return
+    path = last_ip_path(home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"{ip} {host}\n", encoding="utf-8")
+
+
+def ipv4_for(host: str) -> Optional[str]:
+    if is_ipv4(host):
+        return host
+    try:
+        infos = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return None
+    for family, _type, _proto, _canon, sockaddr in infos:
+        if family == socket.AF_INET and sockaddr:
+            ip = sockaddr[0]
+            if is_ipv4(ip):
+                return ip
+    return None
+
+
+def host_lookup_failed(host: str) -> Optional[str]:
+    if is_ipv4(host):
+        return None
+    try:
+        socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        return str(exc)
+    return None
+
+
+def remember_resolved(host: str, ip_or_host: str, home: Optional[Path] = None) -> None:
+    ip = ipv4_for(ip_or_host)
+    if ip:
+        write_last_ip(ip, host, home)
+
+
 def configured_host(
     preferred: Optional[str] = None,
     *,
@@ -142,13 +210,26 @@ def configured_host(
     return None
 
 
-def resolve_base(preferred: Optional[str] = None) -> str:
-    host = configured_host(preferred)
+def resolve_base(preferred: Optional[str] = None, home: Optional[Path] = None) -> str:
+    host = configured_host(preferred, home=home)
     if not host:
         raise ScanError(NO_HOST_MESSAGE)
-    base = probe_host(host)
-    if base:
-        return base
+    # The requested host comes first. The IP saved for that same host is the fallback
+    # for when .local lookup fails, so a stale IP never wins over a different --host.
+    candidates = [host]
+    last = read_last_ip(host, home)
+    if last and last != host:
+        candidates.append(last)
+    for candidate in candidates:
+        base = probe_host(candidate)
+        if base:
+            remember_resolved(host, candidate, home)
+            return base
+    if host_lookup_failed(host):
+        raise ScanError(
+            f"Could not resolve {host}. Try the printer IP with --host, "
+            "or put it in ~/.config/paperfeed/host."
+        )
     raise ScanError(
         f"Could not reach the scanner at {host}. Check that it is on and on this Wi-Fi."
     )

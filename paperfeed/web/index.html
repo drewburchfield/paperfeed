@@ -195,7 +195,7 @@
       <p class="scanner" id="scanner"></p>
     </section>
 
-    <form class="card" id="form">
+    <form class="card" id="form" action="#" method="post">
       <div class="field">
         <label>Source</label>
         <div class="choices">
@@ -261,7 +261,7 @@
         Open when done
       </label>
 
-      <button class="scan" id="scan" type="submit">Scan</button>
+      <button class="scan" id="scan" type="button">Scan</button>
       <p class="error hidden" id="error"></p>
     </form>
 
@@ -307,13 +307,21 @@
       el.addEventListener("change", syncSides);
     });
 
+    let statusInFlight = false;
+    let lastGood = null;
+    let statusFails = 0;
+
     async function refreshStatus() {
+      if (statusInFlight) return;
+      statusInFlight = true;
       try {
         const host = $("host").value.trim();
         const url = host ? `/api/status?host=${encodeURIComponent(host)}` : "/api/status";
         const res = await fetch(url, { headers: { "X-Paperfeed-Token": TOKEN } });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Could not reach the scanner.");
+        lastGood = data;
+        statusFails = 0;
         $("scanner").textContent = data.scanner || "";
         $("feeder").textContent = data.feeder || "";
         const pill = $("state-pill");
@@ -323,10 +331,15 @@
         else if (data.adf === "ScannerAdfEmpty") pill.classList.add("warn");
         else if ((data.adf || "").match(/Jam|Hatch|Overload|Mispick|Multipick/)) pill.classList.add("bad");
         else if (data.state === "Idle") pill.classList.add("idle");
+        if (data.host && !$("host").value.trim()) $("host").placeholder = data.host;
       } catch (err) {
+        statusFails += 1;
+        if (lastGood && statusFails < 3) return;
         $("state-pill").textContent = "Offline";
         $("state-pill").className = "pill bad";
         $("feeder").textContent = err.message;
+      } finally {
+        statusInFlight = false;
       }
     }
 
@@ -335,8 +348,12 @@
 
     let lastPath = "";
 
-    $("form").addEventListener("submit", async (event) => {
+    $("form").addEventListener("submit", (event) => {
       event.preventDefault();
+    });
+
+    async function runScan(event) {
+      if (event) event.preventDefault();
       $("error").classList.add("hidden");
       $("result").classList.add("hidden");
       $("progress").classList.remove("hidden");
@@ -374,7 +391,9 @@
         $("scan").disabled = false;
         refreshStatus();
       }
-    });
+    }
+
+    $("scan").addEventListener("click", runScan);
 
     async function postPath(url) {
       if (!lastPath) return;

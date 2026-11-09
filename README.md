@@ -21,6 +21,14 @@ Tested on an **Epson ET-3950**. Other eSCL/AirScan printers work when you pass `
 
 ## Quick Start
 
+With Homebrew:
+
+```bash
+brew install drewburchfield/tap/paperfeed
+```
+
+Or from a checkout:
+
 ```bash
 git clone https://github.com/drewburchfield/paperfeed.git
 cd paperfeed

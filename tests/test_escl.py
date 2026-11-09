@@ -190,17 +190,17 @@ class HostConfigTests(unittest.TestCase):
             home = Path(raw)
             cfg = home / ".config" / "paperfeed"
             cfg.mkdir(parents=True)
-            (cfg / "last-ip").write_text("192.168.68.69\n", encoding="utf-8")
+            (cfg / "last-ip").write_text("192.0.2.69\n", encoding="utf-8")
 
             def probe(host: str, timeout: float = 4) -> str | None:
-                if host == "192.168.68.69":
-                    return "https://192.168.68.69/eSCL"
+                if host == "192.0.2.69":
+                    return "https://192.0.2.69/eSCL"
                 return None
 
             with patch("paperfeed.escl.configured_host", return_value="printer.local"):
                 with patch("paperfeed.escl.probe_host", side_effect=probe):
                     base = resolve_base(home=home)
-            self.assertEqual(base, "https://192.168.68.69/eSCL")
+            self.assertEqual(base, "https://192.0.2.69/eSCL")
 
     def test_dns_failure_says_resolve_not_wifi(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -220,7 +220,61 @@ class HostConfigTests(unittest.TestCase):
                 with patch("paperfeed.escl.probe_host", return_value="https://192.0.2.10/eSCL"):
                     resolve_base(home=home)
             saved = (home / ".config" / "paperfeed" / "last-ip").read_text(encoding="utf-8").strip()
-            self.assertEqual(saved, "192.0.2.10")
+            self.assertEqual(saved, "192.0.2.10 192.0.2.10")
+
+    def test_requested_host_wins_over_saved_ip(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            cfg = home / ".config" / "paperfeed"
+            cfg.mkdir(parents=True)
+            (cfg / "last-ip").write_text("192.0.2.69 old.local\n", encoding="utf-8")
+            probed: list[str] = []
+
+            def probe(host: str, timeout: float = 4) -> str | None:
+                probed.append(host)
+                return f"https://{host}/eSCL"
+
+            with patch("paperfeed.escl.configured_host", return_value="new.local"):
+                with patch("paperfeed.escl.probe_host", side_effect=probe):
+                    with patch("paperfeed.escl.ipv4_for", return_value=None):
+                        base = resolve_base(home=home)
+            self.assertEqual(base, "https://new.local/eSCL")
+            self.assertEqual(probed, ["new.local"])
+
+    def test_saved_ip_for_other_host_is_not_used(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            cfg = home / ".config" / "paperfeed"
+            cfg.mkdir(parents=True)
+            (cfg / "last-ip").write_text("192.0.2.69 old.local\n", encoding="utf-8")
+            probed: list[str] = []
+
+            def probe(host: str, timeout: float = 4) -> str | None:
+                probed.append(host)
+                return None
+
+            with patch("paperfeed.escl.configured_host", return_value="new.local"):
+                with patch("paperfeed.escl.probe_host", side_effect=probe):
+                    with patch("paperfeed.escl.host_lookup_failed", return_value=None):
+                        with self.assertRaises(ScanError):
+                            resolve_base(home=home)
+            self.assertEqual(probed, ["new.local"])
+
+    def test_fallback_saves_ip_under_hostname(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            cfg = home / ".config" / "paperfeed"
+            cfg.mkdir(parents=True)
+            (cfg / "last-ip").write_text("192.0.2.69 printer.local\n", encoding="utf-8")
+
+            def probe(host: str, timeout: float = 4) -> str | None:
+                return "https://192.0.2.69/eSCL" if host == "192.0.2.69" else None
+
+            with patch("paperfeed.escl.configured_host", return_value="printer.local"):
+                with patch("paperfeed.escl.probe_host", side_effect=probe):
+                    resolve_base(home=home)
+            saved = (cfg / "last-ip").read_text(encoding="utf-8").strip()
+            self.assertEqual(saved, "192.0.2.69 printer.local")
 
 
 class ExclusiveWriteTests(unittest.TestCase):

@@ -131,25 +131,28 @@ def is_ipv4(host: str) -> bool:
     return all(0 <= int(part) <= 255 for part in host.split("."))
 
 
-def read_last_ip(home: Optional[Path] = None) -> Optional[str]:
+def read_last_ip(host: str, home: Optional[Path] = None) -> Optional[str]:
+    """The IP last seen for host. A bare IP line (older format) matches any host."""
     path = last_ip_path(home)
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return None
     for line in text.splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and is_ipv4(line):
-            return line
+        parts = line.split()
+        if not parts or parts[0].startswith("#") or not is_ipv4(parts[0]):
+            continue
+        if len(parts) == 1 or parts[1] == host:
+            return parts[0]
     return None
 
 
-def write_last_ip(ip: str, home: Optional[Path] = None) -> None:
+def write_last_ip(ip: str, host: str, home: Optional[Path] = None) -> None:
     if not is_ipv4(ip):
         return
     path = last_ip_path(home)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(ip + "\n", encoding="utf-8")
+    path.write_text(f"{ip} {host}\n", encoding="utf-8")
 
 
 def ipv4_for(host: str) -> Optional[str]:
@@ -177,10 +180,10 @@ def host_lookup_failed(host: str) -> Optional[str]:
     return None
 
 
-def remember_resolved(host: str, home: Optional[Path] = None) -> None:
-    ip = ipv4_for(host)
+def remember_resolved(host: str, ip_or_host: str, home: Optional[Path] = None) -> None:
+    ip = ipv4_for(ip_or_host)
     if ip:
-        write_last_ip(ip, home)
+        write_last_ip(ip, host, home)
 
 
 def configured_host(
@@ -211,19 +214,16 @@ def resolve_base(preferred: Optional[str] = None, home: Optional[Path] = None) -
     host = configured_host(preferred, home=home)
     if not host:
         raise ScanError(NO_HOST_MESSAGE)
-    last = read_last_ip(home)
-    candidates: list[str] = []
+    # The requested host comes first. The IP saved for that same host is the fallback
+    # for when .local lookup fails, so a stale IP never wins over a different --host.
+    candidates = [host]
+    last = read_last_ip(host, home)
     if last and last != host:
         candidates.append(last)
-    candidates.append(host)
-    seen: set[str] = set()
     for candidate in candidates:
-        if candidate in seen:
-            continue
-        seen.add(candidate)
         base = probe_host(candidate)
         if base:
-            remember_resolved(candidate, home)
+            remember_resolved(host, candidate, home)
             return base
     if host_lookup_failed(host):
         raise ScanError(
